@@ -396,9 +396,11 @@ def clean_stream_url(url):
     parsed_url = urlparse(url)
     return urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, '', '', ''))
 
+TUBI_EPG_RAW_URL = "https://raw.githubusercontent.com/loblawlawblog420/app-m3u-generator/main/playlists/tubi_epg.xml"
+
 def create_m3u_playlist(epg_data, group_mapping):
     sorted_epg_data = sorted(epg_data, key=lambda x: x.get('title', '').lower())
-    playlist = f"#EXTM3U url-tvg=\"tubi_epg.xml\"\n"
+    playlist = f'#EXTM3U url-tvg="{TUBI_EPG_RAW_URL}"\n'
     seen_urls = set()
     for elem in sorted_epg_data:
         channel_name = elem.get('title', 'Unknown Channel').encode('utf-8', errors='ignore').decode('utf-8')
