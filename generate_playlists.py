@@ -461,6 +461,41 @@ def generate_tubi_m3u():
         write_m3u_file("tubi_all.m3u", m3u_playlist)
         epg_tree.write(os.path.join(OUTPUT_DIR, "tubi_epg.xml"), encoding='utf-8', xml_declaration=True)
 
+def combine_playlists():
+    """Merge every individual .m3u in OUTPUT_DIR into a single combined.m3u"""
+    epg_urls = []
+    entries = []
+
+    for filename in sorted(os.listdir(OUTPUT_DIR)):
+        if not filename.endswith(".m3u") or filename == "combined.m3u":
+            continue
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = [l.rstrip("\n") for l in f if l.strip()]
+
+        if not lines:
+            continue
+
+        # pull the EPG url(s) out of the header line
+        header = lines[0]
+        if header.startswith("#EXTM3U") and 'url-tvg="' in header:
+            epg = header.split('url-tvg="', 1)[1].split('"', 1)[0]
+            for e in epg.split(","):
+                if e and e not in epg_urls:
+                    epg_urls.append(e)
+            body = lines[1:]
+        else:
+            body = lines
+
+        entries.extend(body)
+
+    output = [f'#EXTM3U url-tvg="{",".join(epg_urls)}"\n']
+    for line in entries:
+        output.append(line + "\n")
+
+    write_m3u_file("combined.m3u", "".join(output))
+    logger.info(f"Wrote combined.m3u with {len(entries)//2} channels")
+
 # --- Execution ---
 
 if __name__ == "__main__":
@@ -470,3 +505,4 @@ if __name__ == "__main__":
     generate_samsungtvplus_m3u()
     generate_tubi_m3u()
     generate_roku_m3u()
+    combine_playlists()
