@@ -34,6 +34,22 @@ REGION_MAP = {
 
 TOP_REGIONS = ['United States', 'Canada', 'United Kingdom']
 
+# --- YOUR CUSTOMIZATION ---
+# Only build playlists for these regions (US / UK / AUS)
+TARGET_REGIONS = {'us', 'gb', 'au'}
+
+# Drop any channel whose group-title or name flags it as non-English
+BLOCKED_KEYWORDS = [
+    'español', 'espanol', 'en espanol', 'telemundo', 'univision',
+    'latino', 'mexico', 'novelas', 'francais', 'french', 'deutsch',
+    'italiano', 'portugues', 'brasil',
+]
+
+def is_english(group_title: str, name: str = "") -> bool:
+    text = f"{group_title} {name}".lower()
+    return not any(kw in text for kw in BLOCKED_KEYWORDS)
+# --- END CUSTOMIZATION ---
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -114,31 +130,22 @@ def generate_pluto_m3u():
     data = fetch_url('https://github.com/matthuisman/i.mjh.nz/raw/refs/heads/master/PlutoTV/.channels.json.gz', is_json=True, is_gzipped=True)
     if not data or 'regions' not in data: return
 
-    for region in list(data['regions'].keys()) + ['all']:
-        is_all = region == 'all'
+    for region in list(data['regions'].keys()):
+        if region not in TARGET_REGIONS:
+            continue
+
         output_lines = [f'#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/PlutoTV/{region}.xml.gz"\n']
         channels = {}
 
-        if is_all:
-            for r_code, r_data in data['regions'].items():
-                country_name = REGION_MAP.get(r_code.lower(), r_code.upper())
-                for c_id, c_info in r_data.get('channels', {}).items():
-                    channels[f"{c_id}-{r_code}"] = {
-                        **c_info,
-                        'original_id': c_id,
-                        'country_group': country_name,
-                        'service_group': c_info.get('group', 'Other')
-                    }
-        else:
-            region_data = data['regions'].get(region, {}).get('channels', {})
-            country_name = REGION_MAP.get(region.lower(), region.upper())
-            for c_id, c_info in region_data.items():
-                channels[c_id] = {
-                    **c_info,
-                    'original_id': c_id,
-                    'country_group': country_name,
-                    'service_group': c_info.get('group', 'Other')
-                }
+        region_data = data['regions'].get(region, {}).get('channels', {})
+        country_name = REGION_MAP.get(region.lower(), region.upper())
+        for c_id, c_info in region_data.items():
+            channels[c_id] = {
+                **c_info,
+                'original_id': c_id,
+                'country_group': country_name,
+                'service_group': c_info.get('group', 'Other')
+            }
 
         sorted_channels = sorted(
             channels.items(),
@@ -146,7 +153,9 @@ def generate_pluto_m3u():
         )
 
         for c_id, ch in sorted_channels:
-            group_title = ch['country_group'] if is_all else ch['service_group']
+            group_title = ch['service_group']
+            if not is_english(group_title, ch.get('name', '')):
+                continue
 
             output_lines.extend([
                 format_extinf(
@@ -168,14 +177,18 @@ def generate_plex_m3u():
     if not data or 'channels' not in data: return
     found_regions = set()
     for ch in data['channels'].values(): found_regions.update(ch.get('regions', []))
-    for region in list(found_regions) + ['all']:
-        token = get_anonymous_token(region if region != 'all' else 'us')
+    for region in list(found_regions):
+        if region not in TARGET_REGIONS:
+            continue
+        token = get_anonymous_token(region)
         if not token: continue
         output_lines = [f'#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/Plex/{region}.xml.gz"\n']
         channel_list = []
         for c_id, ch in data['channels'].items():
-            if region == 'all' or region in ch.get('regions', []):
-                group = REGION_MAP.get(region.lower(), region.upper()) if region != 'all' else REGION_MAP.get(ch.get('regions', [''])[0].lower(), ch.get('regions', ['Other'])[0].upper())
+            if region in ch.get('regions', []):
+                group = REGION_MAP.get(region.lower(), region.upper())
+                if not is_english(group, ch.get('name', '')):
+                    continue
                 channel_list.append((group, ch['name'].lower(), format_extinf(c_id, c_id, ch.get('chno'), ch['name'], ch.get('logo', ''), group, ch['name']), f"https://epg.provider.plex.tv/library/parts/{c_id}/?X-Plex-Token={token}\n"))
         if channel_list:
             channel_list.sort(key=lambda x: (0 if x[0] in TOP_REGIONS else 1, x[1]))
@@ -187,31 +200,22 @@ def generate_samsungtvplus_m3u():
     if not data or 'regions' not in data: return
     slug_template = data.get('slug', '{id}.m3u8')
 
-    for region in list(data['regions'].keys()) + ['all']:
-        is_all = region == 'all'
+    for region in list(data['regions'].keys()):
+        if region not in TARGET_REGIONS:
+            continue
+
         output_lines = [f'#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/SamsungTVPlus/{region}.xml.gz"\n']
         channels = {}
 
-        if is_all:
-            for r_code, r_info in data['regions'].items():
-                country_name = REGION_MAP.get(r_code.lower(), r_code.upper())
-                for c_id, c_info in r_info.get('channels', {}).items():
-                    channels[f"{c_id}-{r_code}"] = {
-                        **c_info,
-                        'original_id': c_id,
-                        'country_group': country_name,
-                        'service_group': c_info.get('group', 'Other')
-                    }
-        else:
-            region_data = data['regions'].get(region, {}).get('channels', {})
-            country_name = REGION_MAP.get(region.lower(), region.upper())
-            for c_id, c_info in region_data.items():
-                channels[c_id] = {
-                    **c_info,
-                    'original_id': c_id,
-                    'country_group': country_name,
-                    'service_group': c_info.get('group', 'Other')
-                }
+        region_data = data['regions'].get(region, {}).get('channels', {})
+        country_name = REGION_MAP.get(region.lower(), region.upper())
+        for c_id, c_info in region_data.items():
+            channels[c_id] = {
+                **c_info,
+                'original_id': c_id,
+                'country_group': country_name,
+                'service_group': c_info.get('group', 'Other')
+            }
 
         sorted_channels = sorted(
             channels.items(),
@@ -219,7 +223,9 @@ def generate_samsungtvplus_m3u():
         )
 
         for c_id, ch in sorted_channels:
-            group_title = ch['country_group'] if is_all else ch['service_group']
+            group_title = ch['service_group']
+            if not is_english(group_title, ch.get('name', '')):
+                continue
 
             output_lines.extend([
                 format_extinf(
@@ -309,6 +315,8 @@ def generate_roku_m3u():
     for c_id, ch in channels.items():
         raw_group = ch['groups'][0] if ch.get('groups') else 'Other'
         group = ROKU_GROUP_MAP.get(raw_group, raw_group)
+        if not is_english(group, ch.get('name', '')):
+            continue
         group_map.setdefault(group, []).append((c_id, ch))
 
     output_lines = ['#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/Roku/all.xml.gz"\n']
@@ -399,6 +407,8 @@ def create_m3u_playlist(epg_data, group_mapping):
         tvg_id = str(elem.get('content_id', ''))
         logo_url = elem.get('images', {}).get('thumbnail', [None])[0]
         group_title = group_mapping.get(tvg_id, 'Other').encode('utf-8', errors='ignore').decode('utf-8')
+        if not is_english(group_title, channel_name):
+            continue
         if clean_url and clean_url not in seen_urls:
             playlist += f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-logo="{logo_url}" group-title="{group_title}",{channel_name}\n{clean_url}\n'
             seen_urls.add(clean_url)
@@ -460,4 +470,3 @@ if __name__ == "__main__":
     generate_samsungtvplus_m3u()
     generate_tubi_m3u()
     generate_roku_m3u()
-
