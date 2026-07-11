@@ -463,6 +463,37 @@ def generate_tubi_m3u():
         write_m3u_file("tubi_all.m3u", m3u_playlist)
         epg_tree.write(os.path.join(OUTPUT_DIR, "tubi_epg.xml"), encoding='utf-8', xml_declaration=True)
 
+COMBINED_EPG_RAW_URL = "https://raw.githubusercontent.com/loblawlawblog420/app-m3u-generator/main/playlists/combined_epg.xml"
+
+def combine_epgs(epg_urls):
+    """Download every referenced XMLTV guide and merge into one combined_epg.xml"""
+    root = ET.Element("tv")
+    total = 0
+    for url in epg_urls:
+        try:
+            if url == TUBI_EPG_RAW_URL:
+                local_path = os.path.join(OUTPUT_DIR, "tubi_epg.xml")
+                if not os.path.exists(local_path):
+                    continue
+                with open(local_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            else:
+                is_gz = url.endswith(".gz")
+                content = fetch_url(url, is_json=False, is_gzipped=is_gz)
+            if not content:
+                continue
+            sub_root = ET.fromstring(content)
+            for child in sub_root:
+                root.append(child)
+                total += 1
+        except Exception as e:
+            logger.warning(f"Failed to merge EPG from {url}: {e}")
+            continue
+
+    tree = ET.ElementTree(root)
+    tree.write(os.path.join(OUTPUT_DIR, "combined_epg.xml"), encoding="utf-8", xml_declaration=True)
+    logger.info(f"Wrote combined_epg.xml with {total} elements")
+
 def combine_playlists():
     """Merge every individual .m3u in OUTPUT_DIR into a single combined.m3u"""
     epg_urls = []
@@ -491,7 +522,9 @@ def combine_playlists():
 
         entries.extend(body)
 
-    output = [f'#EXTM3U url-tvg="{",".join(epg_urls)}"\n']
+    combine_epgs(epg_urls)
+
+    output = [f'#EXTM3U url-tvg="{COMBINED_EPG_RAW_URL}"\n']
     for line in entries:
         output.append(line + "\n")
 
